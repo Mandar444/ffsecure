@@ -1,55 +1,44 @@
-import { withAuth } from "next-auth/middleware"
+import { getToken } from "next-auth/jwt"
 import { NextResponse } from "next/server"
+import type { NextRequest } from "next/server"
 
-// --- INSANE SECURITY: CONFIGURATION ---
-const SECRET_GATE_PATH = "/portal";
-const ACCESS_TOKEN = "FF-ADMIN-2026-SECURE-V1";
-const HONEYPOT_PATHS = ["/admin/login", "/wp-admin", "/admin/config", "/phpmyadmin"];
+// --- STABLE SECURITY CONFIG ---
+const SECRET_GATE_PATH = "/secret-gate"
+const ACCESS_TOKEN = "FF-ADMIN-2026-SECURE-V1"
+const HONEYPOT_PATHS = ["/admin/login", "/wp-admin", "/admin/config", "/phpmyadmin"]
 
-export default withAuth(
-  async function middleware(req) {
-    const path = req.nextUrl.pathname;
-    const token = req.nextauth.token;
-    const isAdmin = token?.role === "admin";
-    
-    // --- 1. Honeypot Block ---
-    if (HONEYPOT_PATHS.includes(path)) {
-      return new NextResponse("Security Violation: Access Denied.", { status: 403 });
-    }
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
 
-    // --- 2. Secret Gate Logic ---
-    if (path === SECRET_GATE_PATH) {
-      const urlToken = req.nextUrl.searchParams.get("token");
-      if (urlToken !== ACCESS_TOKEN) {
-        // Obfuscate the failure: don't even tell them why it failed
-        return NextResponse.redirect(new URL("/", req.url));
-      }
-      return NextResponse.next();
-    }
-
-    // --- 3. Protected Route Logic ---
-    if (path.startsWith("/admin") && !isAdmin) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-    
-    return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        const path = req.nextUrl.pathname;
-        if (path === SECRET_GATE_PATH) return true;
-        return !!token;
-      },
-    },
-    pages: {
-      signIn: SECRET_GATE_PATH,
-    },
+  // 1. HONEYPOT TRAP: Immediate Ban/Block for bots
+  if (HONEYPOT_PATHS.some(p => pathname.startsWith(p))) {
+    return new NextResponse("Security Violation: Action Logged.", { status: 403 })
   }
-)
+
+  // 2. SECRET GATE LOGIC: Only allow access with the master token
+  if (pathname === SECRET_GATE_PATH) {
+    const token = req.nextUrl.searchParams.get("token")
+    if (token === ACCESS_TOKEN) {
+       return NextResponse.next()
+    }
+    // No token? Silent redirect to home
+    return NextResponse.redirect(new URL("/", req.url))
+  }
+
+  // 3. ADMIN PROTECTION: Require Session
+  if (pathname.startsWith("/admin")) {
+    const session = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
+    if (!session) {
+      // Not logged in? Redirect to the gate
+      return NextResponse.redirect(new URL(SECRET_GATE_PATH, req.url))
+    }
+  }
+
+  return NextResponse.next()
+}
 
 export const config = {
-    matcher: ["/admin/:path*", "/portal", "/wp-admin", "/admin/login", "/phpmyadmin"],
+  matcher: ["/admin/:path*", "/secret-gate", "/wp-admin", "/admin/login", "/phpmyadmin"],
 }
 
 

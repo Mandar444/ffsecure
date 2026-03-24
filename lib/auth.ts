@@ -116,7 +116,7 @@ export const authOptions: NextAuthOptions = {
         }
     },
     pages: {
-        signIn: "/portal",
+        signIn: "/secret-gate",
     },
     session: {
         strategy: "jwt",
